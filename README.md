@@ -1,4 +1,10 @@
-# SIFSM - Sistema Integrado de Futuro Sustentavel em Marte
+# SIFSM - Sistema Integrado de Futuro Sustentavel em Marte - FASE 7
+
+
+| Name     | RM |
+| Arthur Apolonio De Oliveira     |571385|
+| Backtick | `         |
+| Pipe     | \|        |
 
 Prototipo para a colonia **Aurora Siger**. O sistema organiza os dados dos modulos,
 classifica riscos com logica booleana, simula cenarios de energia, preve a descarga
