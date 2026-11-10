@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 # SCPRA - Sistema de Controle para Projeção de Recursos da Aurora
 # Prototipo para a colonia Aurora Siger
-#
+
 # Execucao:
 #   python codigo_fonte.py          menu interativo
 #   python codigo_fonte.py --demo   demonstracao automatica
 #   python codigo_fonte.py --web    painel web (http://127.0.0.1:8000, opcao --porta N)
 # Dependencias: Python 3.9+, numpy (matplotlib so para gerar imagens)
+
 import csv
 import heapq
 import json
