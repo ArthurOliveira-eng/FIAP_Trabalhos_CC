@@ -1,0 +1,92 @@
+>>> 1. CONSULTAR (EST-01)
+ID   MODULO  DATA/HORA          CONS    GER   TEMP    O2%   BAT%
+7    EST-01  2026-11-09 00:00   11.3    0.0   24.7   20.8   81.0
+8    EST-01  2026-11-09 04:00   11.6    0.0   23.8   20.9   71.7
+9    EST-01  2026-11-09 08:00   12.4    6.1   24.3   21.0   66.6
+10   EST-01  2026-11-09 12:00   11.6   11.7   23.5   20.9   66.7
+11   EST-01  2026-11-09 16:00   14.2    6.0   23.5   20.7   34.0
+12   EST-01  2026-11-09 20:00   15.5    0.0   24.4   20.9   17.8
+
+>>> 2. CADASTRAR leitura invalida (tratamento de erro)
+[ERRO] Nao foi possivel cadastrar: Modulo inexistente: XXX-99
+
+>>> 3. CADASTRAR / ALTERAR / EXCLUIR leitura valida
+[OK] Leitura 26 cadastrada.
+[OK] Leitura 26 alterada (bateria_pct = 62.5).
+[OK] Leitura 26 excluida.
+
+>>> 4. CIRCUITO LOGICO
+
+Circuito 1 (CRITICO):  Y1 = A + B      | A=bateria<20%  B=O2<19,5%
+ A B | Y1
+ 0 0 |  0
+ 0 1 |  1
+ 1 0 |  1
+ 1 1 |  1
+
+Circuito 2 (ATENCAO):  Y2 = (C . D) + E | C=consumo>geracao D=bateria<40% E=temp fora
+ C D E | Y2
+ 0 0 0 |  0
+ 0 0 1 |  1
+ 0 1 0 |  0
+ 0 1 1 |  1
+ 1 0 0 |  0
+ 1 0 1 |  1
+ 1 1 0 |  1
+ 1 1 1 |  1
+
+Equivalente em Arduino/Tinkercad: 5 entradas (comparadores/sensores),
+portas OR e AND (CI 74HC32 e 74HC08) e 2 LEDs (vermelho = Y1, amarelo = Y2).
+[OK] circuito_logico.png gerado.
+
+>>> 5. ESTRUTURAS DE DADOS
+
+[HASH] Parametros do modulo EST-01 (busca O(1)): {'id_modulo': 'EST-01', 'nome': 'Estufa Hidroponica', 'tipo': 'alimentos', 'capacidade_kwh': 500.0, 'consumo_medio_kw': 12.0, 'geracao_pico_kw': 12.0}
+[GRAFO] Rota de energia ENR-01 -> REC-01: ENR-01 -> HAB-01 -> REC-01
+[GRAFO] Se HAB-01 falhar, ficam sem energia: ['REC-01']
+[GRAFO] Se EST-01 falhar, ficam sem energia: nenhum
+[PILHA] Ultimas operacoes (topo primeiro): [('EXCLUSAO', 26), ('ALTERACAO', 26), ('CADASTRO', 26)]
+[HEAP] Alertas por prioridade:
+   CRITICO  EST-01 (bateria 17.8%)
+   CRITICO  HAB-01 (bateria 57.6%)
+   ATENCAO  REC-01 (bateria 69.3%)
+
+>>> 6. ANALISE INTEGRADA
+
+=== ANALISE DE SUSTENTABILIDADE DA COLONIA ===
+  HAB-01  -> CRITICO
+  EST-01  -> CRITICO
+  ENR-01  -> NORMAL
+  REC-01  -> ATENCAO
+
+Fila de alertas (heap):
+  CRITICO  EST-01 (bateria 17.8%)
+  CRITICO  HAB-01 (bateria 57.6%)
+  ATENCAO  REC-01 (bateria 69.3%)
+Regressao HAB-01: -0.86 %/h, R2=0.60, ~43.6 h ate 20%
+Regressao EST-01: -4.48 %/h, R2=0.90, ja abaixo do limite
+Regressao ENR-01: -0.09 %/h, R2=0.60, ~875.6 h ate 20%
+Regressao REC-01: -0.26 %/h, R2=0.11, ~191.5 h ate 20%
+Monte Carlo HAB-01: P(bateria<20% em 24 h) = 61% | pior caso (P5) = 11.1%
+Monte Carlo EST-01: P(bateria<20% em 24 h) = 100% | pior caso (P5) = 0.0%
+Monte Carlo REC-01: P(bateria<20% em 24 h) = 0% | pior caso (P5) = 29.9%
+
+Recomendacoes tecnicas:
+  - HAB-01 [CRITICO]: Verificar a Reciclagem de Ar (REC-01) e inspecionar vedacao do modulo. (REQUER CONFIRMACAO HUMANA)
+  - EST-01 [CRITICO]: Reduzir cargas nao essenciais e priorizar o modulo critico na rede. (REQUER CONFIRMACAO HUMANA)
+  - REC-01 [ATENCAO]: Revisar o controle termico e a isolacao do modulo. (REQUER CONFIRMACAO HUMANA)
+
+Trace: AgenteSensores: leu 4 modulos | HANDOFF -> AgenteRisco | AgenteRisco: classificou com regra booleana {'HAB-01': 'CRITICO', 'EST-01': 'CRITICO', 'ENR-01': 'NORMAL', 'REC-01': 'ATENCAO'} | HANDOFF -> AgenteRecomendacao | AgenteRecomendacao: consultou procedimentos (RAG simulado)
+
+>>> 7. GUARDRAIL
+[BLOQUEADO] Guardrail de privacidade: dados pessoais nao sao processados.
+
+>>> 8. ANALISE FINAL
+
+=== ANALISE FINAL ===
+Leituras: 24 | NORMAL: 20 | ATENCAO: 2 | CRITICO: 2
+Consumo medio da colonia: 8.0 kW
+Limitacoes: dados simulados; limites didaticos; regressao com poucos pontos;
+  modelo solar simplificado (sem poeira detalhada); agentes sao simulados (sem LLM real).
+Impacto: decisoes sao sugestoes com confirmacao humana; sem dados pessoais; baixo custo
+  computacional (CPU local, borda) reduz energia e depende menos de data centers.
