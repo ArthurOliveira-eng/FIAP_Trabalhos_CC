@@ -1,8 +1,8 @@
-# Relatorio Tecnico - SIFSM (Aurora Siger)
+# Relatorio Tecnico - SCPRA (Aurora Siger)
 
 ## 1. Contexto da solucao
 
-A colonia Aurora Siger depende de energia, ar e temperatura estaveis. O SIFSM
+A colonia Aurora Siger depende de energia, ar e temperatura estaveis. O SCPRA
 centraliza as leituras dos modulos (habitat, estufa, usina solar e reciclagem),
 identifica risco, simula cenarios e recomenda acoes sempre com confirmacao humana.
 
@@ -39,8 +39,8 @@ Saidas:
 - Y2 (ATENCAO) = (C . D) + E
 
 O circuito (`circuito_logico.png`) usa portas OR (74HC32) e AND (74HC08) e dois LEDs.
-Pode ser reproduzido no Tinkercad com comparadores ou potenciometros simulando os
-sensores. A mesma logica roda em software em `classificar_risco()`.
+A versao para Tinkercad (Arduino Uno, potenciometros e TMP36 simulando os sensores)
+esta em `tinkercad/`, com guia de ligacao e sketch. A mesma logica roda em software em `classificar_risco()`.
 
 ## 5. Estruturas de dados
 
@@ -121,4 +121,4 @@ Limitacoes: dados simulados, limites didaticos, modelo solar simples, regressao 
 poucos pontos e agentes sem LLM real.
 
 Melhorias: sensores reais (Arduino ou IoT), regressao multipla (temperatura e
-consumo), banco Oracle, painel web, LLM com ferramentas e auditoria completa de tracing.
+consumo), banco Oracle, LLM com ferramentas e auditoria completa de tracing.

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Simulacao computacional do SIFSM: SoC da bateria (integral numerica) e Monte Carlo
+# Simulacao computacional do SCPRA: SoC da bateria (integral numerica) e Monte Carlo
 # Gera graficos em graficos_ou_imagens/
 # Uso: python simulacao_computacional.py
 import os

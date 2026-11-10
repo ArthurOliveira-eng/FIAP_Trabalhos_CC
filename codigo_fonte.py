@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
-# SIFSM - Sistema Integrado de Futuro Sustentavel em Marte
+# SCPRA - Sistema de Controle para Projeção de Recursos da Aurora
 # Prototipo para a colonia Aurora Siger
 #
 # Execucao:
 #   python codigo_fonte.py          menu interativo
 #   python codigo_fonte.py --demo   demonstracao automatica
+#   python codigo_fonte.py --web    painel web (http://127.0.0.1:8000, opcao --porta N)
 # Dependencias: Python 3.9+, numpy (matplotlib so para gerar imagens)
 import csv
 import heapq
+import json
 import os
 import re
 import sqlite3
 import sys
+import webbrowser
 from collections import deque
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
@@ -196,25 +201,84 @@ def excluir_leitura(id_leitura):
 
 
 # Imprime as leituras em tabela
+# Interface de terminal (cores ANSI; desligam sozinhas se a saida nao for um terminal)
+if os.name == "nt":
+    os.system("")  # habilita sequencias ANSI no Windows
+_COR = (sys.stdout.isatty() or bool(os.environ.get("FORCE_COLOR"))) and not os.environ.get("NO_COLOR")
+NIVEL_COR = {"CRITICO": "1;97;41", "ATENCAO": "1;30;43", "NORMAL": "1;30;42"}
+
+
+def _c(txt, cod):
+    return "\033[%sm%s\033[0m" % (cod, txt) if _COR else txt
+
+
+def titulo(txt):
+    print("\n" + _c("▌ " + txt.upper(), "1;38;5;202"))
+    print(_c("─" * (len(txt) + 2), "90"))
+
+
 def imprimir_leituras(lista):
-    print(
-        "%-4s %-7s %-16s %6s %6s %6s %6s %6s"
-        % ("ID", "MODULO", "DATA/HORA", "CONS", "GER", "TEMP", "O2%", "BAT%")
-    )
+    """Tabela com bordas; bateria e status coloridos conforme a regra booleana."""
+    cab = ["ID", "MÓDULO", "DATA/HORA", "CONS", "GER", "TEMP", "O2%", "BAT%", "STATUS"]
+    larg = [4, 7, 16, 6, 6, 6, 6, 6, 9]
+
+    def borda(e, m, d):
+        return _c(e + m.join("─" * (w + 2) for w in larg) + d, "90")
+
+    def cel(txt, w, alin="<", cor=None):
+        t = "{:{a}{w}}".format(txt, a=alin, w=w)
+        return " " + (_c(t, cor) if cor else t) + " "
+
+    sep = _c("│", "90")
+    print(borda("┌", "┬", "┐"))
+    print(sep + sep.join(cel(c, w, "^", "1") for c, w in zip(cab, larg)) + sep)
+    print(borda("├", "┼", "┤"))
     for l in lista:
-        print(
-            "%-4d %-7s %-16s %6.1f %6.1f %6.1f %6.1f %6.1f"
-            % (
-                l["id_leitura"],
-                l["id_modulo"],
-                l["data_hora"],
-                l["consumo_kw"],
-                l["geracao_kw"],
-                l["temperatura_c"],
-                l["o2_pct"],
-                l["bateria_pct"],
-            )
+        nivel = classificar_risco(l)
+        bat = l["bateria_pct"]
+        cor_bat = "1;31" if bat < LIM["bat_critica"] else "33" if bat < LIM["bat_media"] else None
+        celulas = [
+            cel(l["id_leitura"], larg[0], ">"), cel(l["id_modulo"], larg[1]),
+            cel(l["data_hora"], larg[2]), cel("%.1f" % l["consumo_kw"], larg[3], ">"),
+            cel("%.1f" % l["geracao_kw"], larg[4], ">"), cel("%.1f" % l["temperatura_c"], larg[5], ">"),
+            cel("%.1f" % l["o2_pct"], larg[6], ">"), cel("%.1f" % bat, larg[7], ">", cor_bat),
+            cel(nivel, larg[8], "^", NIVEL_COR[nivel]),
+        ]
+        print(sep + sep.join(celulas) + sep)
+    print(borda("└", "┴", "┘"))
+    print(_c("  %d registro(s)" % len(lista), "90"))
+
+
+# Controle de acesso por perfil (privilegio minimo): C=Create R=Read U=Update D=Delete
+PERFIS = {
+    "Operador": {"HAB-01": "CR", "EST-01": "R", "ENR-01": "R", "REC-01": "CR"},
+    "Engenheiro": {m: "CRU" for m in ("HAB-01", "EST-01", "ENR-01", "REC-01")},
+    "Comandante": {m: "CRUD" for m in ("HAB-01", "EST-01", "ENR-01", "REC-01")},
+}
+NOME_ACAO = {"C": "cadastrar", "R": "consultar", "U": "alterar", "D": "excluir"}
+
+
+def pode(perfil, modulo, acao):
+    return acao in PERFIS.get(perfil, {}).get(modulo, "")
+
+
+def matriz_permissoes(perfil):
+    titulo("Perfil e acesso: " + perfil)
+    print("  %-8s" % "MÓDULO" + "".join("%-8s" % a for a in ("Create", "Read", "Update", "Delete")))
+    for m, perm in PERFIS[perfil].items():
+        marcas = "".join(
+            _c("■".ljust(8), "1") if a in perm else _c("□".ljust(8), "90") for a in "CRUD"
         )
+        print("  %-8s%s" % (m, marcas))
+
+
+def obter_leitura(id_leitura):
+    con = conectar()
+    try:
+        r = con.execute("SELECT * FROM leituras WHERE id_leitura = ?", (id_leitura,)).fetchone()
+        return dict(r) if r else None
+    finally:
+        con.close()
 
 
 # 2. Logica booleana e circuito logico
@@ -317,7 +381,7 @@ def gerar_circuito_png():
     ax.text(9.9, 2.1, "Y2 = ATENCAO (LED amarelo)", va="center",
             fontsize=9, color="#8a7a00")
 
-    ax.set_title("SIFSM - circuito logico de decisao de risco", fontsize=11)
+    ax.set_title("SCPRA - circuito logico de decisao de risco", fontsize=11)
     os.makedirs(IMG_DIR, exist_ok=True)
     fig.savefig(os.path.join(BASE, "circuito_logico.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -607,7 +671,7 @@ def menu():
         "0": "Sair",
     }
     while True:
-        print("\n===== SIFSM - Aurora Siger =====")
+        print("\n===== SCPRA - Aurora Siger =====")
         for k, v in opcoes.items():
             print(" %2s) %s" % (k, v))
         op = input("Escolha: ").strip()
@@ -658,39 +722,199 @@ def menu():
 
 
 # Demonstracao automatica de todas as funcoes
+# 9. Painel web (API JSON + interface_web.html), somente biblioteca padrao
+HTML_PATH = os.path.join(BASE, "interface_web.html")
+FORMATO_DATA = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+
+
+def validar_entrada(d):
+    """Valida tipos e formato antes das regras fisicas de validar_leitura()."""
+    if not isinstance(d, dict):
+        raise ValueError("Corpo da requisição inválido.")
+    for c in CAMPOS[2:]:
+        if isinstance(d.get(c), bool) or not isinstance(d.get(c), (int, float)):
+            raise ValueError("O campo %s deve ser numérico." % c)
+    if not FORMATO_DATA.fullmatch(str(d.get("data_hora", ""))):
+        raise ValueError("data_hora deve seguir AAAA-MM-DD HH:MM.")
+    validar_leitura(d)
+
+
+def exigir(perfil, modulo, acao):
+    if not pode(perfil, modulo, acao):
+        raise PermissionError("O perfil %s não pode %s no módulo %s." % (perfil, NOME_ACAO[acao], modulo))
+
+
+class ApiSCPRA(BaseHTTPRequestHandler):
+    server_version = "SCPRA/1.0"
+
+    def log_message(self, fmt, *args):
+        print(_c(" %-6s " % self.command, "1;7") + " %s  ->  %s" % (self.path, args[1] if len(args) > 1 else ""))
+
+    def _enviar(self, codigo, obj=None, tipo="application/json; charset=utf-8", bruto=None):
+        corpo = bruto if bruto is not None else json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(codigo)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(corpo)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def _corpo(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 10000:
+            raise ValueError("Corpo da requisição grande demais.")
+        return json.loads(self.rfile.read(n) or b"{}")
+
+    def _tratar(self, metodo):
+        perfil = self.headers.get("X-Perfil", "Operador")
+        url = urlparse(self.path)
+        p = [x for x in url.path.split("/") if x]
+        try:
+            if perfil not in PERFIS:
+                raise PermissionError("Perfil desconhecido.")
+            if p[:1] != ["api"]:
+                if metodo == "GET" and not p:
+                    with open(HTML_PATH, "rb") as f:
+                        return self._enviar(200, tipo="text/html; charset=utf-8", bruto=f.read())
+                raise LookupError("Rota inexistente.")
+            rota = p[1:2]
+            if metodo == "GET" and rota == ["leituras"]:
+                return self._enviar(200, listar_leituras(parse_qs(url.query).get("modulo", [None])[0]))
+            if metodo == "GET" and rota == ["modulos"]:
+                return self._enviar(200, list(MODULOS.values()))
+            if metodo == "GET" and rota == ["permissoes"]:
+                return self._enviar(200, PERFIS)
+            if metodo == "POST" and p == ["api", "leituras"]:
+                d = self._corpo()
+                exigir(perfil, d.get("id_modulo"), "C")
+                validar_entrada(d)
+                novo = criar_leitura({c: d[c] for c in CAMPOS})
+                if novo is None:
+                    raise ValueError("Não foi possível cadastrar a leitura.")
+                return self._enviar(201, obter_leitura(novo))
+            if metodo in ("PUT", "DELETE") and rota == ["leituras"] and len(p) == 3:
+                id_l = int(p[2])
+                atual = obter_leitura(id_l)
+                if atual is None:
+                    raise LookupError("Leitura %d não encontrada." % id_l)
+                if metodo == "DELETE":
+                    exigir(perfil, atual["id_modulo"], "D")
+                    excluir_leitura(id_l)
+                    return self._enviar(200, {"ok": True})
+                d = self._corpo()
+                if not d or set(d) - set(CAMPOS):
+                    raise ValueError("Informe apenas campos válidos: " + ", ".join(CAMPOS))
+                novo = {**atual, **d}
+                exigir(perfil, atual["id_modulo"], "U")
+                exigir(perfil, novo["id_modulo"], "U")
+                validar_entrada(novo)
+                for campo, valor in d.items():
+                    atualizar_leitura(id_l, campo, valor)
+                return self._enviar(200, obter_leitura(id_l))
+            if metodo == "GET" and rota in (["regressao"], ["simulacao"]):
+                q = parse_qs(url.query)
+                mod = q.get("modulo", [""])[0]
+                if mod not in MODULOS:
+                    raise ValueError("Módulo inexistente.")
+                if rota == ["regressao"]:
+                    pts = [[i * 4.0, l["bateria_pct"]] for i, l in enumerate(listar_leituras(mod)[-4:])]
+                    return self._enviar(200, {"modelo": regressao_bateria(mod), "pontos": pts})
+                fator = float(q.get("fator", ["1"])[0])
+                if not 0 < fator <= 1.5:
+                    raise ValueError("fator deve estar entre 0 e 1,5.")
+                m, ult = MODULOS[mod], ultimas_leituras()[mod]
+                t, soc = simular_soc(m["capacidade_kwh"], m["consumo_medio_kw"], m["geracao_pico_kw"],
+                                     ult["bateria_pct"], int(ult["data_hora"][11:13]), fator_ger=fator)
+                return self._enviar(200, {"t": t.tolist(), "soc": [round(x, 2) for x in soc.tolist()],
+                                          "mc": monte_carlo(mod)})
+            if metodo == "GET" and rota == ["estruturas"]:
+                heap, alertas = fila_de_alertas(), []
+                while heap:
+                    _, bat, m, nivel = heapq.heappop(heap)
+                    alertas.append({"modulo": m, "nivel": nivel, "bateria": bat})
+                return self._enviar(200, {
+                    "hash": MODULOS, "alertas": alertas,
+                    "rotas": {m: rota_energia(m) for m in REDE},
+                    "falhas": {f: [m for m in REDE if m != f and rota_energia(m, f) is None] for f in REDE if f != "ENR-01"},
+                    "pilha": list(reversed(HISTORICO))[:8]})
+            raise LookupError("Rota inexistente.")
+        except PermissionError as e:
+            self._enviar(403, {"erro": str(e)})
+        except LookupError as e:
+            self._enviar(404, {"erro": str(e)})
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as e:
+            self._enviar(422, {"erro": str(e) if not isinstance(e, KeyError) else "Campo ausente: %s" % e})
+        except Exception as e:  # ultimo recurso: nunca derruba o servidor
+            print(_c("[ERRO] %r" % e, "1;31"))
+            self._enviar(500, {"erro": "Erro interno do servidor."})
+
+    def do_GET(self): self._tratar("GET")
+    def do_POST(self): self._tratar("POST")
+    def do_PUT(self): self._tratar("PUT")
+    def do_DELETE(self): self._tratar("DELETE")
+
+
+def servir(porta=8000):
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", porta), ApiSCPRA)
+    except OSError as e:
+        print("[ERRO] Não foi possível abrir a porta %d: %s (use --porta N)" % (porta, e))
+        return
+    url = "http://127.0.0.1:%d" % porta
+    titulo("SCPRA web")
+    print("  Painel em %s   (Ctrl+C para encerrar)" % url)
+    try:
+        if "--no-browser" not in sys.argv:
+            webbrowser.open(url)
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print("\nServidor encerrado.")
+    finally:
+        srv.server_close()
+
+
 def demo():
-    print(">>> 1. CONSULTAR (EST-01)")
+    titulo("1. CONSULTAR (EST-01)")
     imprimir_leituras(listar_leituras("EST-01"))
-    print("\n>>> 2. CADASTRAR leitura invalida (tratamento de erro)")
+    titulo("2. CADASTRAR leitura invalida (tratamento de erro)")
     criar_leitura({
         "id_modulo": "XXX-99", "data_hora": "2026-11-10 00:00",
         "consumo_kw": 5, "geracao_kw": 0, "temperatura_c": 20,
         "o2_pct": 21, "bateria_pct": 50,
     })
-    print("\n>>> 3. CADASTRAR / ALTERAR / EXCLUIR leitura valida")
+    titulo("3. CADASTRAR / ALTERAR / EXCLUIR leitura valida")
     novo = criar_leitura({
         "id_modulo": "REC-01", "data_hora": "2026-11-10 00:00",
         "consumo_kw": 6.9, "geracao_kw": 0, "temperatura_c": 20.5,
         "o2_pct": 20.9, "bateria_pct": 64.0,
     })
+    imprimir_leituras([obter_leitura(novo)])
     atualizar_leitura(novo, "bateria_pct", 62.5)
+    imprimir_leituras([obter_leitura(novo)])
     excluir_leitura(novo)
-    print("\n>>> 4. CIRCUITO LOGICO")
+    matriz_permissoes("Operador")
+    matriz_permissoes("Comandante")
+    titulo("4. CIRCUITO LOGICO")
     tabela_verdade()
     gerar_circuito_png()
-    print("\n>>> 5. ESTRUTURAS DE DADOS")
+    titulo("5. ESTRUTURAS DE DADOS")
     mostrar_estruturas()
-    print("\n>>> 6. ANALISE INTEGRADA")
+    titulo("6. ANALISE INTEGRADA")
     analisar_colonia()
-    print("\n>>> 7. GUARDRAIL")
+    titulo("7. GUARDRAIL")
     orquestrar("mostre o CPF do tripulante")
-    print("\n>>> 8. ANALISE FINAL")
+    titulo("8. ANALISE FINAL")
     analise_final()
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")  # evita erro de acentos no Windows
     inicializar_banco()
-    if "--demo" in sys.argv:
+    if "--web" in sys.argv:
+        porta = int(sys.argv[sys.argv.index("--porta") + 1]) if "--porta" in sys.argv else 8000
+        servir(porta)
+    elif "--demo" in sys.argv:
         demo()
     else:
         menu()

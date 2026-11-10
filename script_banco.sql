@@ -1,5 +1,5 @@
 -- script_banco.sql
--- SIFSM - Aurora Siger
+-- SCPRA - Aurora Siger
 -- Banco: SQLite (equivalente ao Oracle)
 -- No Oracle: troque AUTOINCREMENT por GENERATED ALWAYS AS IDENTITY,
 -- REAL por NUMBER e TEXT por VARCHAR2
