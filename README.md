@@ -33,7 +33,6 @@ SCPRA/
 ├── tinkercad/                   # guia de montagem e sketch Arduino do circuito
 ├── relatorio_tecnico.md         # relatório técnico
 ├── link_video.txt               # link do vídeo (YouTube, não listado)
-├── roteiro_apresentacao.md      # roteiro do vídeo (6 min, com tempos)
 ├── README.md
 └── graficos_ou_imagens/         # gráficos, exemplo de execução e capturas de tela do CRUD
 ```
